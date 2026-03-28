@@ -5,22 +5,22 @@ module Conv1D_Layer
     input clk,
     input reset,
     
-    // Control
+    // --- Control ---
     input start,          
-    input en,             
-    input valid_in,      
+    input en,             // <--- C?NG M?I QUAN TR?NG
+    input valid_in,       // valid_in c?ng ph?i tuân theo en
     output reg valid_out, 
     output reg ready_in,  
 
-    // Data
+    // --- Data ---
     input signed [16 * `DATA_WIDTH - 1 : 0] x_in_vec,
     input signed [16 * 4 * `DATA_WIDTH - 1 : 0] weights_vec,
     input signed [16 * `DATA_WIDTH - 1 : 0] bias_vec,
 
-    // Output
+    // --- Output ---
     output signed [16 * `DATA_WIDTH - 1 : 0] y_out_vec,
 
-    // External PE Interface 
+    // --- External PE Interface ---
     output reg [1:0] pe_op_mode_out,
     output reg       pe_clear_out,
     output reg [16 * `DATA_WIDTH - 1 : 0] pe_in_a_vec,
@@ -28,7 +28,7 @@ module Conv1D_Layer
     input wire [16 * `DATA_WIDTH - 1 : 0] pe_result_vec
 );
 
-    // Unpack
+    // --- Unpack ---
     wire signed [`DATA_WIDTH-1:0] x_in [15:0];
     wire signed [`DATA_WIDTH-1:0] w_in [15:0][3:0];
     wire signed [`DATA_WIDTH-1:0] b_in [15:0];
@@ -44,12 +44,12 @@ module Conv1D_Layer
         end
     endgenerate
 
-    // Shift Registers
+    // --- Shift Registers ---
     reg signed [`DATA_WIDTH-1:0] shift_reg [15:0][2:0]; 
     reg signed [`DATA_WIDTH-1:0] current_x [15:0]; 
     wire signed [`DATA_WIDTH-1:0] silu_out [15:0];
     
-    // FSM
+    // --- FSM ---
     reg [2:0] state; 
     localparam S_IDLE      = 0;
     localparam S_LOAD_BIAS = 1;
@@ -60,12 +60,12 @@ module Conv1D_Layer
     localparam S_WAIT_SILU = 6; 
     localparam S_UPDATE    = 7;
 
-    localparam signed [`DATA_WIDTH-1:0] ONE_FIXED = 16'h1000;
+    localparam signed [`DATA_WIDTH-1:0] ONE_FIXED = 16'h0080;   // 1.0 - Q8.7
 
-    // SiLU
+    // --- SiLU ---
     generate
         for (i = 0; i < 16; i = i + 1) begin : silu_gen
-            SiLU_Unit u_silu (
+            SiLU_Unit_PWL_7F u_silu (
                 .clk(clk),
                 .in_data(pe_result_vec[i*`DATA_WIDTH +: `DATA_WIDTH]), 
                 .out_data(silu_out[i])
@@ -74,7 +74,7 @@ module Conv1D_Layer
         end
     endgenerate
 
-    //LOGIC PE CONTROL (COMBINATIONAL)
+    // --- LOGIC PE CONTROL (COMBINATIONAL) ---
     integer c;
     always @(*) begin
         // Default
@@ -88,6 +88,7 @@ module Conv1D_Layer
                 pe_clear_out = 1;
             end
 
+            // Các tr?ng thái tính toán ch? kích ho?t khi EN = 1
             default: begin
                 if (en) begin
                     case(state)
@@ -127,13 +128,15 @@ module Conv1D_Layer
                             end
                         end
                         S_WAIT_SILU, S_UPDATE: begin
+                            // Gi? nguyên output PE cho SiLU
                             pe_op_mode_out = `MODE_MAC;
                             pe_clear_out = 0;
+                            // Input = 0 ð? ko c?ng thêm rác
                         end
                     endcase
                 end 
                 else begin 
-                    // (en=0): Keep Accumulator
+                    // Khi PAUSE (en=0): Gi? nguyên Accumulator
                     pe_op_mode_out = `MODE_MAC;
                     pe_clear_out = 0;
                     // Input = 0
@@ -143,7 +146,7 @@ module Conv1D_Layer
     end
 
 
-    // FSM (SEQUENTIAL) 
+    // --- FSM (SEQUENTIAL) ---
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             state <= S_IDLE;
@@ -171,8 +174,9 @@ module Conv1D_Layer
                 case (state)
                     S_IDLE: begin
                         valid_out <= 0;
-                        ready_in <= 1; 
+                        ready_in <= 1; // Luôn s?n sàng nh?n data m?i
                         
+                        // ? tr?ng thái IDLE, n?u có valid_in và en, ta b?t ð?u tính
                         if (valid_in && en) begin
                             ready_in <= 0; // B?n r?n
                             for (c = 0; c < 16; c = c + 1)
@@ -181,6 +185,7 @@ module Conv1D_Layer
                         end
                     end
                     
+                    // Trong các state tính toán, CH? CHUY?N TI?P KHI CÓ EN
                     default: begin
                         if (en) begin
                             case (state)
@@ -202,6 +207,7 @@ module Conv1D_Layer
                                 end
                             endcase
                         end
+                        // N?u en=0 -> Gi? nguyên state -> ÐÚNG ? Ð? PAUSE
                     end
                 endcase
             end

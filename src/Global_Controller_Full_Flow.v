@@ -180,6 +180,7 @@ module Global_Controller_Full_Flow
     reg [3:0] scan_out_idx;
     reg [255:0] scan_out_buffer;
     reg [3:0] sub_idx;
+    integer k;
     
     // --- MEMORY MAP ---
     localparam ADDR_X_INPUT     = 15'd0;         // A[0..3999]
@@ -194,7 +195,7 @@ module Global_Controller_Full_Flow
     localparam ADDR_DT_RAW_BASE = 15'd3000;      // 3000..3999
     localparam ADDR_GATE        = 15'd8192;      // 8192..16191
     localparam ADDR_DELTA_BASE  = 15'd17000;     // 17000..24999
-    localparam ADDR_FINAL_OUT   = 15'd20000;    
+    localparam ADDR_FINAL_OUT   = 15'd25000;    
 
     // Weight RAM
     localparam W_BASE_INPROJ1 = 15'd0;
@@ -264,10 +265,10 @@ module Global_Controller_Full_Flow
                     done_system <= 0;
                     if (start_system) begin
                         //state <= S_PHASE3_SETUP; 
-                        //state <= S_PHASE1_SETUP; 
+                        state <= S_PHASE1_SETUP; 
                         //state <= S_SCAN_SETUP;
                         //state <= S_PHASE5_SETUP;
-                        state <= S_DEBUG_SETUP;
+                        //state <= S_DEBUG_SETUP;
                     end
                 end
 
@@ -421,7 +422,6 @@ module Global_Controller_Full_Flow
                     const_read_addr <= 0; 
                     
                     // Set Bank Sel = 0 (Doc RAM A - X_PRIM)
-                    // Luu y: Memory System phai hieu la doc ADDR_X_PRIM
                     bank_sel <= 0; 
                     
                     state <= S_CONV_LOAD_WEIGHT;
@@ -495,7 +495,7 @@ module Global_Controller_Full_Flow
                         
                         if (chunk_cnt == 7) begin 
                             state <= S_PHASE3_SETUP; 
-                            //state <= S_DONE; // DEBUG CHECK
+                            //state <= S_DONE; // DEBUG
                         end else begin
                              // Sang Chunk moi -> Load Weight moi
                              base_weight_addr <= base_weight_addr + 4; 
@@ -525,9 +525,9 @@ module Global_Controller_Full_Flow
                     feed_x_idx <= 0;
                     x_cache_idx <= 0;
                     
-                    // Input X_Proj �?c t? Output Conv (ADDR_CONV_OUT)
-                    // D? li?u Conv l�u Channel-First. Linear c?n Token-First.
-                    // Token i n?m ?: Base+i, Base+1000+i, Base+2000+i...
+                    // Input X_Proj lay tu Output Conv (ADDR_CONV_OUT)
+                    // Du lieu Conv luu Channel-First. Linear can Token-First.
+                    // Token i : Base+i, Base+1000+i, Base+2000+i...
                     stride_addr <= ADDR_CONV_OUT + token_cnt; 
                     core_read_addr <= ADDR_CONV_OUT + token_cnt;
                     
@@ -535,7 +535,7 @@ module Global_Controller_Full_Flow
                     base_weight_addr <= W_BASE_XPROJ + (chunk_cnt * 128);
                     weight_read_addr <= W_BASE_XPROJ + (chunk_cnt * 128);
                     
-                    bank_sel <= 0; // �?c RAM A
+                    bank_sel <= 0; // Doc RAM A
                     lin_en <= 0;
                     
                     state <= S_XPROJ_READ;
@@ -549,12 +549,11 @@ module Global_Controller_Full_Flow
                 S_XPROJ_WAIT_RAM: state <= S_XPROJ_FEED;
                 
                 S_XPROJ_FEED: begin
-                    // 1. N?P CACHE (Khi EN = 0)
+                    // 1.NAP CACHE (Khi EN = 0)
                     if (lin_en == 0) begin 
                         x_cache <= core_read_data; 
                         lin_en <= 1;
                         
-                        // Nh?y c�c 1000 �?a ch? �? l?y 16 k�nh ti?p theo c?a c�ng Token
                         stride_addr <= stride_addr + 1000;
                         core_read_addr <= stride_addr + 1000; 
                         
@@ -573,7 +572,7 @@ module Global_Controller_Full_Flow
                             x_cache_idx <= 0;
                         end 
                         else if (x_cache_idx == 15) begin
-                            lin_en <= 0; // Pause �?c RAM
+                            lin_en <= 0; // Pause
                             x_cache_idx <= 0;
                             state <= S_XPROJ_READ; 
                         end 
@@ -594,7 +593,7 @@ module Global_Controller_Full_Flow
                     core_write_en <= 1;
                     bank_sel <= 0; 
                     
-                    // --- GHI K?T QU? PHASE 3.1 ---
+                    // --- GHI KET QUA PHASE 3.1 ---
                     if (chunk_cnt == 0) begin
                         core_write_addr <= ADDR_B_BASE + token_cnt; // B
                         core_write_data <= lin_y_out_in;
@@ -605,21 +604,21 @@ module Global_Controller_Full_Flow
                     end 
                     else begin 
                         core_write_addr <= ADDR_DT_RAW_BASE + token_cnt; // dt_raw
-                        // Zero padding logic (Gi? 4 s? �?u, �p 0 ph?n �u�i)
+                        // Zero padding logic 
                         core_write_data <= {192'd0, lin_y_out_in[63:0]};
                     end
                     
-                    // --- �I?U KHI?N LU?NG (QUAN TR?NG) ---
+                    // DIEU KHIEN LUONG
                     if (chunk_cnt == 2) begin 
                         chunk_cnt <= 0;
                         if (token_cnt == 999) begin
-                            // Xong 1000 Token c?a Phase 3.1
-                            // Chuy?n sang Phase 3.2 (Reset token_cnt �? ch?y l?i t? �?u)
+                            // Xong 1000 Token Phase 3.1
+                            // Chuyen sang Phase 3.2 (Reset token_cnt)
                             token_cnt <= 0;
-                            state <= S_DT_READ_INPUT; // <--- CHUY?N QUA PHASE 3.2 T?I ��Y
+                            state <= S_DT_READ_INPUT; // QUA PHASE 3.2
                         end else begin
                             token_cnt <= token_cnt + 1;
-                            state <= S_XPROJ_SETUP; // Token ti?p theo c?a 3.1
+                            state <= S_XPROJ_SETUP; // Token tiep theo cua 3.1
                         end
                     end else begin
                         chunk_cnt <= chunk_cnt + 1;
@@ -629,32 +628,32 @@ module Global_Controller_Full_Flow
                 
                 // ============================================================
                 // PHASE 3.2: DT_PROJECTION (Token-First Processing)
-                // �?c dt_raw t? RAM -> Linear -> Softplus -> Delta -> RAM
+                // Doc dt_raw tu RAM -> Linear -> Softplus -> Delta -> RAM
                 // ============================================================
                 
-                // --- B�?C 1: �?C DT_RAW T? RAM (Ch? l�m 1 l?n m?i Token) ---
+                // --- BUOC 1: DOC DT_RAW TU RAM (Chi lam 1 lan moi Token) ---
                 S_DT_READ_INPUT: begin
                     mode_select <= 3'd1; // Linear Mode
-                    // �?c t? �?a ch? �? l�u ? Phase 3.1
+                    // Doc tu dia chi da luu o Phase 3.1
                     core_read_addr <= ADDR_DT_RAW_BASE + token_cnt;
-                    bank_sel <= 1;  //nay luu B, doc thi doi lai A
+                    bank_sel <= 1;  // nay luu B, doc thi doi lai A
                     state <= S_DT_WAIT_INPUT_RAM;
                 end
                 
                 S_DT_WAIT_INPUT_RAM: begin
-                    // Ch? RAM tr? d? li?u 
-                    // (Cycle sau data s? c� s?n ? port core_read_data)
+                    // Cho RAM tra du lieu 
+                    // (Cycle sau data se co san o port core_read_data)
                     state <= S_DT_SETUP;
                     chunk_cnt <= 0; // Reset chunk cho 8 chunks delta
                 end
 
-                // --- B�?C 2: SETUP & FEED LINEAR ---
+                // --- BUOC 2: SETUP & FEED LINEAR ---
                 S_DT_SETUP: begin
-                    // Latch data t? RAM v�o Cache ? chunk �?u ti�n
+                    // Latch data tu RAM vao Cache o chunk dau tien
                     if (chunk_cnt == 0) begin
                         x_cache <= core_read_data; 
                     end
-                    // V?i c�c chunk sau, x_cache v?n gi? gi� tr? c? (dt_raw) -> ��ng logic!
+                    // Voi cac chunk sau, x_cache van giu gia tri cu (dt_raw) -> Dung logic!
 
                     lin_len <= 4; // Input length = 4 (dt_rank)
                     
@@ -684,7 +683,7 @@ module Global_Controller_Full_Flow
                         weight_read_addr <= base_weight_addr + 1; 
                     end 
                     else begin
-                        // Feed 4 gi� tr? t? x_cache (dt_raw)
+                        // Feed 4 gia tri tu x_cache (dt_raw)
                         if (dt_idx == 3) begin 
                             lin_en <= 0;
                             state <= S_DT_WAIT_LIN;
@@ -698,24 +697,24 @@ module Global_Controller_Full_Flow
                 
                 S_DT_WAIT_LIN: begin
                     if (lin_done || lin_done_flag) begin
-                        // Xong Linear -> C� k?t qu? th� -> �?y qua Softplus
+                        // Xong Linear -> Co ket qua tho -> Day qua Softplus
                         delta_buf_idx <= 0;
                         state <= S_DT_SOFTPLUS;
                     end
                 end
                 
                 S_DT_SOFTPLUS: begin
-                    // �?y t?ng s? (trong 16 s?) v�o Softplus
+                    // Day tung so (trong 16 so) vao Softplus
                     //softplus_in <= lin_y_out_in[delta_buf_idx*16 +: 16];
                     state <= S_DT_LATCH_SOFTPLUS;
                 end
                 
                 S_DT_LATCH_SOFTPLUS: begin
-                    // Nh?n k?t qu?
+                    // Nhan ket qua
                     delta_buffer[delta_buf_idx*16 +: 16] <= softplus_out;
                     
                     if (delta_buf_idx == 15) begin
-                        state <= S_DT_WRITE; // �? xong 16 s?
+                        state <= S_DT_WRITE; // Da xong 16 so
                     end else begin
                         delta_buf_idx <= delta_buf_idx + 1;
                         state <= S_DT_SOFTPLUS;
@@ -726,7 +725,7 @@ module Global_Controller_Full_Flow
                     core_write_en <= 1;
                     bank_sel <= 0; 
                     
-                    // Ghi Delta xu?ng RAM
+                    // Ghi Delta xuong RAM
                     core_write_addr <= ADDR_DELTA_BASE + (token_cnt * 8) + chunk_cnt;
                     core_write_data <= delta_buffer;
                     
@@ -737,17 +736,17 @@ module Global_Controller_Full_Flow
                     core_write_en <= 0;
                     
                     if (chunk_cnt == 7) begin
-                        // Xong 8 chunk delta (128 k�nh) cho token n�y
+                        // Xong 8 chunk delta 
                         if (token_cnt == 999) begin
-                            state <= S_SCAN_SETUP; // Xong to�n b? Phase 3.2
-                            //state <= S_DONE;         // Test phase 1 2 3
+                            state <= S_SCAN_SETUP; 
+                            //state <= S_DONE;    
                         end else begin
                             token_cnt <= token_cnt + 1;
-                            state <= S_DT_READ_INPUT; // L�m ti?p token sau
+                            state <= S_DT_READ_INPUT; // Lam tiep token sau
                         end
                     end else begin
                         chunk_cnt <= chunk_cnt + 1;
-                        state <= S_DT_SETUP; // Chunk delta ti?p theo
+                        state <= S_DT_SETUP; // Chunk delta tiep theo
                     end
                 end
                 
@@ -762,33 +761,33 @@ module Global_Controller_Full_Flow
                 scan_en     <= 0;
                 scan_out_idx <= 0;   // Index buffer output
                 
-                scan_clear_h <= 1; // Reset ngay t? �?u
+                scan_clear_h <= 1; // Reset ngay tu dau
                 
-                // Chu?n b? v�o loop
+                // Chuan bi vao loop
                 state <= S_SCAN_LOAD_STATIC;
             end
             
-            // --- B�?C 1: LOAD THAM S? T?NH C?A K�NH (A, D) ---
-            // Ch? l�m 1 l?n m?i K�nh (Channel)
+            // --- BUOC 1: LOAD THAM SO TINH CUA KENH (A, D) ---
+            // Chi lam 1 lan moi Kenh (Channel)
             S_SCAN_LOAD_STATIC: begin
-                // 1. Load A (Vector 16) - T? Const RAM
-                // A c� shape (128, 16) -> L�u ? 128 d?ng �?u Const RAM
+                // 1. Load A (Vector 16) - Tu Const RAM
+                // A co shape (128, 16) -> Luu o 128 dong dau Const RAM
                 const_read_addr <= ADDR_A_BASE + scan_ch_cnt;
                 
-                // --- K�CH HO?T X�A H ---
+                // --- KICH HOAT XOA H ---
                 scan_clear_h <= 1; 
                 
-                // Ch? RAM tr? d? li?u
+                // Cho RAM tra du lieu
                 state <= S_SCAN_RAM_WAIT;
-                next_state_after_wait <= 70; // State ?o (xem case b�n d�?i)
+                next_state_after_wait <= 70; // State ao (xem case ben duoi)
             end
             
-            // Logic nh?n d? li?u Static (Sau RAM WAIT)
+            // Logic nhan du lieu Static (Sau RAM WAIT)
             70: begin
-                scan_A_vec <= const_read_data; // L?y A
+                scan_A_vec <= const_read_data; // Lay A
                 
-                // 2. Load D (Scalar) - T? Const RAM
-                // D l�u t? d?ng 128 tr? �i. Gi? s? D l�u packed 16 s?/d?ng.
+                // 2. Load D (Scalar) - Tu Const RAM
+                // D luu tu dong 128 tro di. Gia su D luu packed 16 so/dong.
                 // Addr = Base + (Ch / 16)
                 const_read_addr <= ADDR_D_BASE + (scan_ch_cnt / 16);
                 
@@ -797,20 +796,20 @@ module Global_Controller_Full_Flow
             end
             
             71: begin
-                // B�c t�ch D (Scalar)
+                // Boc tach D (Scalar)
                 sub_idx = scan_ch_cnt % 16;
                 scan_D_val <= const_read_data[sub_idx*16 +: 16];
                 
-                // Xong Static -> V�o v?ng l?p Token
+                // Xong Static -> Vao vong lap Token
                 token_cnt <= 0;
                 state <= S_SCAN_LOAD_DYN_1;
             end
 
-            // --- B�?C 2: LOAD D? LI?U �?NG (THEO TOKEN) ---
+            // --- BUOC 2: LOAD DU LIEU DONG (THEO TOKEN) ---
             
             // 2.1 Load Delta (RAM B - Token First Strided)
             S_SCAN_LOAD_DYN_1: begin
-                bank_sel <= 1; // �?c RAM B
+                bank_sel <= 1; // Doc RAM B
                 // Addr = Base + (Token * 8) + Chunk
                 core_read_addr <= ADDR_DELTA_BASE + (token_cnt << 3) + (scan_ch_cnt[7:4]);
                 scan_clear_h <= 0; 
@@ -819,8 +818,8 @@ module Global_Controller_Full_Flow
             end
             
             72: begin
-                // B�c t�ch Delta (Scalar)
-                // Trong 1 chunk (16 k�nh), k�nh hi?n t?i n?m ? v? tr� (ch % 16)
+                // Boc tach Delta (Scalar)
+                // Trong 1 chunk (16 kenh), kenh hien tai nam o vi tri (ch % 16)
                 sub_idx = scan_ch_cnt % 16;
                 scan_delta_val <= core_read_data[sub_idx*16 +: 16];
                 
@@ -829,8 +828,8 @@ module Global_Controller_Full_Flow
 
             // 2.2 Load X (RAM A - Channel First)
             S_SCAN_LOAD_DYN_2: begin
-                bank_sel <= 0; // �?c RAM A
-                // X l�u Channel-First (t? Conv output)
+                bank_sel <= 0; // Doc RAM A
+                // X luu Channel-First (tu Conv output)
                 // Addr = Base + (Ch * 63) + (Token / 16)
                 
                 //core_read_addr <= ADDR_CONV_OUT + (scan_ch_cnt * 63) + (token_cnt[15:4]);
@@ -842,7 +841,7 @@ module Global_Controller_Full_Flow
             end
             
             73: begin
-                // B�c t�ch X (Scalar)
+                // Boc tach X (Scalar)
                 sub_idx = scan_ch_cnt % 16;
                 scan_x_val <= core_read_data[sub_idx*16 +: 16];
                 
@@ -851,11 +850,13 @@ module Global_Controller_Full_Flow
             
             // 2.3 Load Gate (RAM B - Channel First)
             S_SCAN_LOAD_DYN_3: begin
-                bank_sel <= 1; // �?c RAM B
+                bank_sel <= 1; // Doc RAM B
                 //core_read_addr <= ADDR_GATE  + (scan_ch_cnt * 63) + (token_cnt[15:4]);
                 
                 //core_read_addr <= ADDR_GATE + (token_cnt << 3) + {11'd0, scan_ch_cnt[7:4]};
-                core_read_addr <= ADDR_CONV_OUT + ({8'd0, scan_ch_cnt[7:4]} * 1000) + token_cnt;
+                //core_read_addr <= ADDR_CONV_OUT + ({8'd0, scan_ch_cnt[7:4]} * 1000) + token_cnt;
+                core_read_addr <= ADDR_GATE + ({8'd0, scan_ch_cnt[7:4]} * 1000) + token_cnt;
+
                 
                 state <= S_SCAN_RAM_WAIT;
                 next_state_after_wait <= 74;
@@ -866,14 +867,14 @@ module Global_Controller_Full_Flow
                 sub_idx = scan_ch_cnt % 16;
                 scan_gate_val <= core_read_data[sub_idx*16 +: 16];
                 
-                // Chuy?n v? RAM A �? �?c B, C (Shared)
+                // Chuyen ve RAM A de doc B, C (Shared)
                 bank_sel <= 0;
                 state <= S_SCAN_LOAD_SHARED_1;
             end
 
             // 2.4 Load B (RAM B - Token First Linear)
             S_SCAN_LOAD_SHARED_1: begin
-                bank_sel <= 1; // V?n RAM B
+                bank_sel <= 1; // Van RAM B
                 // Addr = Base + Token
                 core_read_addr <= ADDR_B_BASE + token_cnt; 
                 state <= S_SCAN_RAM_WAIT;
@@ -881,7 +882,7 @@ module Global_Controller_Full_Flow
             end
             
             75: begin
-                scan_B_vec <= core_read_data; // B l� vector 256-bit
+                scan_B_vec <= core_read_data; // B la vector 256-bit
                 state <= S_SCAN_LOAD_SHARED_2;
             end
             
@@ -894,15 +895,15 @@ module Global_Controller_Full_Flow
             end
             
             76: begin
-                scan_C_vec <= core_read_data; // C l� vector 256-bit
+                scan_C_vec <= core_read_data; // C la vector 256-bit
                 
-                // �? nguy�n li?u -> CH?Y!
+                // Du nguyen lieu -> CHAY!
                 state <= S_SCAN_RUN;
             end
 
-            // --- B�?C 3: CH?Y SCAN CORE ---
+            // --- BUOC 3: CHAY SCAN CORE ---
             S_SCAN_RUN: begin
-                scan_en <= 1;    // B?t Enable
+                scan_en <= 1;    // Bat Enable
                 scan_start <= 1; // Pulse Start
                 
                 state <= S_SCAN_WAIT;
@@ -912,59 +913,61 @@ module Global_Controller_Full_Flow
                 scan_start <= 0;
                 
                 if (scan_done) begin
-                    scan_en <= 0; // T?t Enable
+                    scan_en <= 0; // Tat Enable
                     
-                    // Gom k?t qu? v�o Buffer Output
-                    scan_out_buffer[scan_out_idx*16 +: 16] <= scan_y_out;
-                    scan_out_idx <= scan_out_idx + 1;
+                    // --- BAT DAU READ-MODIFY-WRITE (TUONG TAC RAM A) ---
+                    bank_sel <= 0; // SET 0 DE DOC TU RAM A
+                    core_read_addr <= ADDR_SCAN_Y_BASE + ({8'd0, scan_ch_cnt[7:4]} * 1000) + token_cnt;
                     
-                    // N?u Buffer �?y (�? 16 token) ho?c l� token cu?i c�ng -> Ghi RAM
-                    if (scan_out_idx == 15 || token_cnt == 999) begin
-                        state <= S_SCAN_WRITE;
-                    end else begin
-                        // Ch�a �?y -> L�m token ti?p theo
-                        token_cnt <= token_cnt + 1;
-                        state <= S_SCAN_LOAD_DYN_1; // Quay l?i load �?ng
-                    end
+                    state <= S_SCAN_RAM_WAIT;
+                    next_state_after_wait <= 77; 
                 end
             end
             
-            // --- B�?C 4: GHI K?T QU? ---
-            S_SCAN_WRITE: begin
-                // Ghi v�o RAM B (Target Output Scan)
-                // Addr = Base + (Ch * 63) + (Token / 16)
-                // L�u ?: token_cnt hi?n t?i l� token cu?i c?a batch 16
+            77: begin
+                // Luu du lieu 15 kenh cu tu RAM A vao buffer
+                scan_out_buffer <= core_read_data; 
+                state <= 78; 
+            end
+            
+            78: begin // S_SCAN_RMW_WRITE
                 core_write_en <= 1;
-                bank_sel <= 1; // Ghi RAM A
+                bank_sel <= 1; // SET 1 DE GHI VAO RAM A
+                core_write_addr <= ADDR_SCAN_Y_BASE + ({8'd0, scan_ch_cnt[7:4]} * 1000) + token_cnt;
                 
-                core_write_addr <= ADDR_SCAN_Y_BASE + (scan_ch_cnt * 63) + (token_cnt[15:4]);
-                core_write_data <= scan_out_buffer;
+                // To hop du lieu: Giu nguyen cac kenh khac, de ket qua moi vao dung Kenh hien tai
+                for (k = 0; k < 16; k = k + 1) begin
+                    if (k == (scan_ch_cnt % 16))
+                        core_write_data[k*16 +: 16] <= scan_y_out; // Ghi de
+                    else
+                        core_write_data[k*16 +: 16] <= scan_out_buffer[k*16 +: 16]; // Giu nguyen
+                end
                 
-                // Reset buffer index
-                scan_out_idx <= 0;
+                state <= 79; // Chuyen state de cho tat write
+            end
+            
+            79: begin
+                core_write_en <= 0;
                 
-                // Check xem h?t Token ch�a
+                // Chuyen sang Token hoac Kenh tiep theo
                 if (token_cnt == 999) begin
-                    core_write_en <= 0; // T?t write ? cycle sau
-                    
-                    // H?t token cho k�nh n�y -> Sang k�nh kh�c
                     if (scan_ch_cnt == 127) begin
-                        state <= S_DONE; // XONG TO�N B? (Phase 4 Done)
+                        //state <= S_DONE; // XONG TOAN BO PHASE 4
+                        state <= S_PHASE5_SETUP; // TEST TIEP PHASE 5
                     end else begin
                         scan_ch_cnt <= scan_ch_cnt + 1;
-                        state <= S_SCAN_LOAD_STATIC; // Load A, D cho k�nh m?i
+                        state <= S_SCAN_LOAD_STATIC; // Sang kenh moi
                     end
                 end else begin
-                    // Ch�a h?t token -> Ti?p t?c token sau
                     token_cnt <= token_cnt + 1;
-                    state <= S_SCAN_LOAD_DYN_1;
+                    state <= S_SCAN_LOAD_DYN_1; // Sang token tiep theo
                 end
             end
             
-            // State trung gian �? ch? RAM (d�ng chung)
+            // State trung gian de cho RAM (dung chung)
             S_SCAN_RAM_WAIT: begin
-                 if (core_write_en) core_write_en <= 0; // �?m b?o t?t write
-                 state <= next_state_after_wait; // Nh?y v? ��ch �? �?nh
+                 if (core_write_en) core_write_en <= 0; // Dam bao tat write
+                 state <= next_state_after_wait; // Nhay ve dich da dinh
             end
             
             // ============================================================
@@ -973,8 +976,9 @@ module Global_Controller_Full_Flow
             
             S_PHASE5_SETUP: begin
                 token_cnt <= 0;
-                chunk_cnt <= 0; // Chunk ? ��y l� Output Group (64 output -> 4 chunks 16)
+                chunk_cnt <= 0; // Chunk o day la Output Group (64 output -> 4 chunks 16)
                 state <= S_OUTPROJ_SETUP;
+                lin_bias_vals <= 0;  // <--- THEM DONG NAY DE XOA RAC BIAS TU PHASE 3
             end
 
             S_OUTPROJ_SETUP: begin
@@ -986,20 +990,20 @@ module Global_Controller_Full_Flow
                 x_cache_idx <= 0;
                 
                 // 1. INPUT X (SCAN OUT):
-                // Scan Out l�u Channel-First (Group-First).
-                // Token hi?n t?i n?m r?i r�c ?: Base + (Group*1000) + Token
-                // B?t �?u t? Group 0
+                // Scan Out luu Channel-First (Group-First).
+                // Token hien tai nam roi rac o: Base + (Group*1000) + Token
+                // Bat dau tu Group 0
                 stride_addr <= ADDR_SCAN_Y_BASE + token_cnt; 
                 core_read_addr <= ADDR_SCAN_Y_BASE + token_cnt;
                 
                 // 2. WEIGHT:
-                // W_out shape (64, 128). Chia l�m 4 chunks output.
-                // M?i chunk x? l? 16 h�ng.
-                // Addr = Base + (Chunk * 128 d?ng input)
+                // W_out shape (64, 128). Chia lam 4 chunks output.
+                // Moi chunk xu ly 16 hang.
+                // Addr = Base + (Chunk * 128 dong input)
                 base_weight_addr <= W_BASE_OUTPROJ + (chunk_cnt * 128);
                 weight_read_addr <= W_BASE_OUTPROJ + (chunk_cnt * 128);
                 
-                bank_sel <= 0; // �?c RAM A (Scan Out)
+                bank_sel <= 0; // Doc RAM A (Scan Out)
                 lin_en <= 0;
                 
                 state <= S_OUTPROJ_READ;
@@ -1013,19 +1017,19 @@ module Global_Controller_Full_Flow
             S_OUTPROJ_WAIT: state <= S_OUTPROJ_FEED;
             
             S_OUTPROJ_FEED: begin
-                // 1. N?P CACHE (Khi EN = 0)
+                // 1. NAP CACHE (Khi EN = 0)
                 if (lin_en == 0) begin 
                     x_cache <= core_read_data; 
                     lin_en <= 1;
                     
-                    // Logic Stride Read (Gi?ng Phase 3.1)
-                    // Nh?y �?n Group ti?p theo: +1000
+                    // Logic Stride Read (Giong Phase 3.1)
+                    // Nhay den Group tiep theo: +1000
                     stride_addr <= stride_addr + 1000;
                     core_read_addr <= stride_addr + 1000; 
                     
-                    // FIX: KH�NG t�ng �?a ch? weight ? ��y.
-                    // W[0] �? ��?c load t? SETUP/WAIT, c?n gi? nguy�n cho nh?p �?u ti�n (x[0]).
-                    weight_read_addr <= weight_read_addr + 1; // <-- X�A D?NG N�Y
+                    // FIX: KHONG tang dia chi weight o day.
+                    // W[0] da duoc load tu SETUP/WAIT, can giu nguyen cho nhip dau tien (x[0]).
+                    weight_read_addr <= weight_read_addr + 1;
                 end
                 
                 // 2. FEED LINEAR (Khi EN = 1)
@@ -1033,25 +1037,25 @@ module Global_Controller_Full_Flow
                     x_cache_idx <= x_cache_idx + 1;
                     feed_x_idx <= feed_x_idx + 1;
                     
-                    if (feed_x_idx == 127) begin // �? 128 ph?n t?
+                    if (feed_x_idx == 127) begin // Du 128 phan tu
                         lin_en <= 0; 
                         state <= S_OUTPROJ_WAIT_L;
                         feed_x_idx <= 0; 
                         x_cache_idx <= 0;
                     end 
-                    else if (x_cache_idx == 15) begin // H?t 16 s? trong Cache -> Reload
+                    else if (x_cache_idx == 15) begin // Het 16 so trong Cache -> Reload
                         lin_en <= 0; 
                         x_cache_idx <= 0;
-                        state <= S_OUTPROJ_READ; // Quay l?i �?c Group ti?p theo
+                        state <= S_OUTPROJ_READ; // Quay lai doc Group tiep theo
                         
-                        // FIX: Khi quay l?i READ, �?a ch? Weight c?n t�ng l�n 1 (cho x ti?p theo)
-                        // L�c n�y feed_x_idx �ang l� 15, 31...
+                        // FIX: Khi quay lai READ, dia chi Weight can tang len 1 (cho x tiep theo)
+                        // Luc nay feed_x_idx dang la 15, 31...
                         // Next weight addr = Base + feed_x_idx + 1
                     end 
                     else begin
                         // FIX: Logic Pipeline
-                        // T?i nh?p i (�ang t�nh x[i]*W[i]), ta c?n request W[i+1] cho nh?p sau.
-                        // feed_x_idx hi?n t?i l� i.
+                        // Tai nhip i (dang tinh x[i]*W[i]), ta can request W[i+1] cho nhip sau.
+                        // feed_x_idx hien tai la i.
                         // Addr = Base + i + 1.
                         weight_read_addr <= base_weight_addr + feed_x_idx + 2;
                     end
@@ -1065,7 +1069,7 @@ module Global_Controller_Full_Flow
             end
             
             S_OUTPROJ_WRITE: begin
-                // Ghi k?t qu? Final Output (64 channels)
+                // Ghi ket qua Final Output (64 channels)
                 core_write_en <= 1;
                 bank_sel <= 0; // Ghi RAM B (ADDR_FINAL_OUT)
                 
@@ -1077,111 +1081,17 @@ module Global_Controller_Full_Flow
                 if (chunk_cnt == 3) begin // Xong 4 chunks (64 channels)
                     chunk_cnt <= 0;
                     if (token_cnt == 999) begin
-                        state <= S_DONE; // MISSION COMPLETE!
+                        state <= S_DONE;
                     end else begin
                         token_cnt <= token_cnt + 1;
                         state <= S_OUTPROJ_SETUP; 
                     end
                 end else begin
                     chunk_cnt <= chunk_cnt + 1;
-                    state <= S_OUTPROJ_SETUP; // Chunk ti?p theo (16 output channels ti?p theo)
+                    state <= S_OUTPROJ_SETUP; // Chunk tiep theo (16 output channels tiep theo)
                 end
             end
             
-            // ============================================================
-            // DEBUG PHASE: LINEAR 128->64 (TOKEN-FIRST READ MODE)
-            // ============================================================
-            
-            S_DEBUG_SETUP: begin
-                mode_select <= 3'd1; // Linear
-                lin_len <= 128;      // Input 128
-                lin_start <= 1;
-                lin_bias_vals <= 0;  // X�a Bias c? (QUAN TR?NG)
-                
-                feed_x_idx <= 0;
-                x_cache_idx <= 0;
-                
-                // --- �?C KI?U PHASE 1 (TU?N T?) ---
-                // Input 128 ph?n t? = 8 d?ng RAM (16 s?/d?ng)
-                // Addr = Base + (Token * 8)
-                core_read_addr <= ADDR_DEBUG_IN + (token_cnt << 3);
-                
-                // Weight (V?n d�ng Chunk)
-                base_weight_addr <= W_BASE_OUTPROJ + (chunk_cnt * 128);
-                weight_read_addr <= W_BASE_OUTPROJ + (chunk_cnt * 128);
-                
-                bank_sel <= 0; // �?c RAM A
-                lin_en <= 0;
-                state <= S_DEBUG_READ;
-            end
-            
-            S_DEBUG_READ: begin
-                lin_start <= 0;
-                state <= S_DEBUG_FEED; // B? qua b�?c WAIT RAM cho nhanh (ho?c th�m n?u RAM tr?)
-            end
-            
-            S_DEBUG_FEED: begin
-                // 1. N?P CACHE (Khi EN = 0)
-                if (lin_en == 0) begin 
-                    x_cache <= core_read_data; 
-                    lin_en <= 1;
-                    
-                    // --- KH�C PHASE 5: �?C TU?N T? (+1) ---
-                    core_read_addr <= core_read_addr + 1; 
-                    weight_read_addr <= base_weight_addr + feed_x_idx + 1;
-                end
-                
-                // 2. FEED (Khi EN = 1)
-                else begin 
-                    x_cache_idx <= x_cache_idx + 1;
-                    feed_x_idx <= feed_x_idx + 1;
-                    
-                    if (feed_x_idx == 127) begin 
-                        lin_en <= 0; 
-                        state <= S_DEBUG_WAIT;
-                        feed_x_idx <= 0; x_cache_idx <= 0;
-                    end 
-                    else if (x_cache_idx == 15) begin 
-                        lin_en <= 0; 
-                        x_cache_idx <= 0;
-                        state <= S_DEBUG_READ; // Quay l?i �?c d?ng ti?p theo
-                        
-                        //weight_read_addr <= base_weight_addr + feed_x_idx + 1;
-                    end 
-                    else begin
-                        weight_read_addr <= base_weight_addr + feed_x_idx + 2;
-                    end
-                end
-            end
-            
-            S_DEBUG_WAIT: begin
-                if (lin_done || lin_done_flag) begin
-                    state <= S_DEBUG_WRITE;
-                end
-            end
-            
-            S_DEBUG_WRITE: begin
-                core_write_en <= 1;
-                bank_sel <= 0; // Ghi RAM B
-                
-                // Ghi Token-First ��n gi?n �? d? check
-                // Addr = Base + (Token * 4) + Chunk
-                core_write_addr <= ADDR_DEBUG_OUT + (token_cnt << 2) + chunk_cnt;
-                core_write_data <= lin_y_out_in;
-                
-                if (chunk_cnt == 3) begin 
-                    chunk_cnt <= 0;
-                    if (token_cnt == 999) state <= S_DONE;
-                    else begin
-                        token_cnt <= token_cnt + 1;
-                        state <= S_DEBUG_SETUP;
-                    end
-                end else begin
-                    chunk_cnt <= chunk_cnt + 1;
-                    state <= S_DEBUG_SETUP;
-                end
-            end
-
                 S_DONE: begin
                     done_system <= 1;
                     if (!start_system) state <= S_IDLE;
@@ -1197,36 +1107,22 @@ module Global_Controller_Full_Flow
         conv_w_vec = w_conv_cache;
         softplus_in = lin_y_out_in[delta_buf_idx * 16 +: 16];
         
-        // 1. PHASE 1, 3.1 & 5: D�ng x_cache index
-        if (state == S_LIN_FEED_X || state == S_XPROJ_FEED || state == S_OUTPROJ_FEED || state == S_DEBUG_FEED) begin
+        // 1. PHASE 1, 3.1 & 5: Dung x_cache index
+        if (state == S_LIN_FEED_X || state == S_XPROJ_FEED || state == S_OUTPROJ_FEED) begin
             lin_x_val = x_cache[x_cache_idx * 16 +: 16];
             lin_W_vals = weight_read_data;
         end
         
-        // 2. PHASE 3.2: D�ng dt_idx (l?y t? x_cache 4 ph?n t? �?u)
+        // 2. PHASE 3.2: Dung dt_idx (lay tu x_cache 4 phan tu dau)
         else if (state == S_DT_FEED) begin
             lin_x_val  = x_cache[dt_idx * 16 +: 16]; 
             lin_W_vals = weight_read_data;
             lin_bias_vals = const_read_data;
         end
-        
-//        // Debug: trace MAC for token0, out_ch0 (chunk0 lane0)
-//        if (state == S_DEBUG_FEED && lin_en &&
-//            token_cnt == 0 && chunk_cnt == 0) begin
-        
-//            // feed_x_idx ch�nh l� input index i (0..127) c?a linear
-//            if (feed_x_idx < 8) begin
-//                $display("[MAC] t=%0d out_ch=%0d i=%0d | x_addr=%0d w_addr=%0d | x=%h w=%h | prod=%0d",
-//                    token_cnt, 0, feed_x_idx,
-//                    core_read_addr, weight_read_addr,
-//                    lin_x_val,
-//                    lin_W_vals[0*16 +: 16], // lane_out=0
-//                    $signed(lin_x_val) * $signed(lin_W_vals[0*16 +: 16])
-//                );
-//            end
-//        end
 
 
     end
 
 endmodule
+
+

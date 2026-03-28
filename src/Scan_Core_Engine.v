@@ -6,11 +6,11 @@ module Scan_Core_Engine
     input reset,
     
     input start,           
-    input en,           
-    input clear_h,         // Reset Hidden State
+    input en,              // <--- NEW: Enable Signal
+    input clear_h,         // (Reset Hidden State)
     output reg done,       
     
-    // Inputs
+    // --- Inputs tu he thong ---
     input signed [`DATA_WIDTH-1:0] delta_val,
     input signed [`DATA_WIDTH-1:0] x_val,
     input signed [`DATA_WIDTH-1:0] D_val,     
@@ -20,44 +20,45 @@ module Scan_Core_Engine
     input signed [16 * `DATA_WIDTH - 1 : 0] B_vec,
     input signed [16 * `DATA_WIDTH - 1 : 0] C_vec,
 
-    // Output
+    // --- Output ket qua ---
     output reg signed [`DATA_WIDTH-1:0] y_out,
 
     // ============================================================
-    // PE ARRAY EXTERNAL
+    // GIAO TIEP VOI SHARED PE ARRAY (TOP MODULE)
     // ============================================================
-
+    // 1. Lenh dieu khien
     output reg [1:0] pe_op_mode_out,
     output reg       pe_clear_acc_out,
 
-    // Data dua vao pe (16 PE * 16 bit)
+    // 2. Du lieu nap vao (16 PE * 16 bit)
     output reg [16 * `DATA_WIDTH - 1 : 0] pe_in_a_vec,
     output reg [16 * `DATA_WIDTH - 1 : 0] pe_in_b_vec,
 
+    // 3. Ket qua tra ve tu PE
     input wire [16 * `DATA_WIDTH - 1 : 0] pe_result_vec
 );
 
-    // Internal Registers
+    // --- Internal Registers ---
     reg signed [`DATA_WIDTH-1:0] h_reg [15:0];
     reg signed [`DATA_WIDTH-1:0] discA_stored [15:0];   
     reg signed [`DATA_WIDTH-1:0] deltaBx_stored [15:0]; 
     
-    // Internal Wires for Local Units
+    // --- Internal Wires for Local Units ---
     wire signed [`DATA_WIDTH-1:0] A_in [15:0];
     wire signed [`DATA_WIDTH-1:0] B_in [15:0];
     wire signed [`DATA_WIDTH-1:0] C_in [15:0];
     
-    // Exp Unit & SiLU Unit
+    // Exp Unit & SiLU Unit (giu lai ben trong)
     wire signed [`DATA_WIDTH-1:0] exp_in [15:0];
     wire signed [`DATA_WIDTH-1:0] exp_out [15:0];
     wire signed [`DATA_WIDTH-1:0] silu_out; 
     
-    // Residual + Gating
+    // Tinh Residual + Gating (combinational logic here or registered output)
     reg signed [31:0] Dx_prod;
     reg signed [31:0] y_with_D;
     reg signed [31:0] y_final_raw;
 
-    // Unpack 
+    // Unpack Inputs
     genvar i;
     generate
         for (i = 0; i < 16; i = i + 1) begin : unpack
@@ -69,7 +70,7 @@ module Scan_Core_Engine
             // Exp Unit lay input tu ket qua PE tra ve (khi tinh xong Delta * A)
             assign exp_in[i] = pe_result_vec[i*`DATA_WIDTH +: `DATA_WIDTH];
             
-            Exp_Unit exp_u (
+            Exp_Unit_PWL_7F exp_u (
                 .clk(clk),
                 .in_data(exp_in[i]),
                 .out_data(exp_out[i])
@@ -77,9 +78,10 @@ module Scan_Core_Engine
         end
     endgenerate
 
-    SiLU_Unit_PWL silu_u (
+    // SiLU Unit (chi can 1 cai cho output cuoi)
+    SiLU_Unit_PWL_7F silu_u (
         .clk(clk),
-        .in_data(gate_val),
+        .in_data(gate_val), // Input Gate tho
         .out_data(silu_out)
     );
 
@@ -89,12 +91,12 @@ module Scan_Core_Engine
     always @(*) begin
         sum_all = 0;
         for (k=0; k<16; k=k+1) begin
-            // PE result (h[i]*C[i])
+            // Lay ket qua tu PE result (luc nay dang chua h[i]*C[i])
             sum_all = sum_all + $signed(pe_result_vec[k*`DATA_WIDTH +: `DATA_WIDTH]);
         end
     end
 
-    // FSM
+    // --- FSM ---
     reg [3:0] state;
     localparam S_IDLE  = 0;
     localparam S_STEP1 = 1; // Calc Delta * A
@@ -107,7 +109,7 @@ module Scan_Core_Engine
 
     integer j;
 
-    // SEQUENTIAL LOGIC
+    // --- 1. SEQUENTIAL LOGIC (FSM) ---
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             state <= S_IDLE;
@@ -124,11 +126,12 @@ module Scan_Core_Engine
             end
         
             if (start) begin
-                state <= S_STEP1;
+                state <= S_STEP1; // Start reset state
                 done <= 0;
             end 
-            else if (en) begin 
+            else if (en) begin // CH? CH?Y KHI C� EN
                 case(state)
+                    // S_IDLE: (Kh�ng l�m g?, ch? start)
                     
                     S_STEP1: state <= S_STEP2;
                     
@@ -152,10 +155,15 @@ module Scan_Core_Engine
                     end
 
                     S_STEP7: begin
-                        
                         Dx_prod = x_val * D_val; 
-                        y_with_D = sum_all + (Dx_prod >>> `FRAC_BITS);
-                        y_final_raw = (y_with_D * silu_out) >>> `FRAC_BITS;
+                        
+                        // Cộng 64 (tương đương 0.5) để làm tròn Round-to-nearest
+                        y_with_D = sum_all + ((Dx_prod + 64) >>> `FRAC_BITS);
+                        
+                        y_final_raw = y_with_D * silu_out;
+                        
+                        // Làm tròn lần nữa sau khi nhân Gating
+                        y_final_raw = (y_final_raw + 64) >>> `FRAC_BITS;
                         
                         if (y_final_raw > 32767) y_out <= 32767;
                         else if (y_final_raw < -32768) y_out <= -32768;
@@ -169,13 +177,15 @@ module Scan_Core_Engine
                 endcase
             end
             
+            // N?u !en: Gi? nguy�n state v� c�c thanh ghi
             
-            if (done && !start) done <= 0; 
+            if (done && !start) done <= 0; // T? x�a done sau 1 nh?p n?u kh�ng start l?i
         end
     end
 
-    // Combinational Logic
+    // --- 2. Combinational Logic (PE Control & Routing) ---
     always @(*) begin
+        // Mac dinh
         pe_op_mode_out   = `MODE_MUL;
         pe_clear_acc_out = 0;
         pe_in_a_vec      = 0;
